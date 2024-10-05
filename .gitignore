@@ -107,7 +107,6 @@ venv.bak/
 __pycache__
 **/reporting
 
-pretrained_models
 docs/build
 .vscode
 spleeter-feedstock/
