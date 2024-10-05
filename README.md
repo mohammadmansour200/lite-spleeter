@@ -16,8 +16,14 @@ This is a lite spleeter version that works with media files of any length, with 
 I limited it to processing 30 seconds only one after another, then it concatenates those splitted parts.
 
 ## Get started
+*Make sure you have ffmpeg installed.*
 
-Read the original [Spleeter repo](https://github.com/deezer/spleeter)
+Download package:
+```bash
+pip install lite-spleeter
+```
+
+Read the original [Spleeter repo](https://github.com/deezer/spleeter) for more info.
 
 ## Example usage
 ```bash
