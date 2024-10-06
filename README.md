@@ -3,13 +3,6 @@
 ## About
 This is a lightweight [Spleeter](https://github.com/deezer/spleeter) (a library that uses AI/ML to extract vocals from audio files) version that works with media files of any length, with very low and fixed RAM usage (around 1.5 GB RAM usage on my computer).
 
-## What changed?
-• Removed the train and evaluation command.
- 
-• Made the package pre-built and limited to the 2stems separation flavor (Vocals / accompaniment separation) for simplicity.
-
-• Used tensorflow-cpu for a smaller package.
-
 ## Features
 • Progress indicator
 
@@ -20,7 +13,7 @@ This is a lightweight [Spleeter](https://github.com/deezer/spleeter) (a library 
 • No numpy errors
 
 ## How does it work?
-It processes 30-second segments sequentially. After processing all segments, it concatenates them. This approach helps keep memory usage low.
+It processes 30-second segments sequentially. After processing all segments, it concatenates them. This approach of processing chunks instead of the whole audio file helps keep memory usage low.
 
 ## Get started
 *Make sure you have [ffmpeg](https://www.ffmpeg.org/download.html) installed.*
@@ -42,7 +35,7 @@ You can provide either a single or a list of files for batch processing
 ##### Batch processing
 `separate` command builds the model each time it is called, this process may be long, in this case If you have several files to separate, it is then recommended to perform all separation with a single call to separate:
 ```bash
-lite-spleeter separate <path/to/audio1.mp3> <path/to/audio2.wav> <path/to/audio3.ogg> -o audio_output _path
+lite-spleeter separate <path/to/audio1.mp3> <path/to/audio2.wav> <path/to/audio3.ogg> -o audio_output_path
 ```
 
 
