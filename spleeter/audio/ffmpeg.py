@@ -194,7 +194,9 @@ def get_audio_duration(audio_descriptor):
     return duration
 
 
-def merge_media_files(segment_files: list, output_folder: str, codec: str):
+def merge_media_files(
+    filename: str, segment_files: list, output_folder: str, codec: str
+):
     temp_folder_path = os.path.join(output_folder, "tmp")
 
     # Create a temporary text file to list all audio files to merge
@@ -210,8 +212,7 @@ def merge_media_files(segment_files: list, output_folder: str, codec: str):
             safe=0,
         )
         .output(
-            os.path.join(output_folder, f"vocals.{codec}"),
-            preset="ultrafast",
+            os.path.join(output_folder, f"{filename}_vocals.{codec}"),
         )
         .run(overwrite_output=True)
     )

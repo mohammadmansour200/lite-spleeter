@@ -17,7 +17,7 @@ Examples:
 import atexit
 import os
 from multiprocessing import Pool
-from os.path import basename, dirname, join
+from os.path import dirname, basename, join, exists, splitext
 import shutil
 from typing import Any, Dict, Generator, List, Optional
 
@@ -81,7 +81,7 @@ def create_estimator(params: Dict, MWF: bool) -> tf.Tensor:
             A tensorflow estimator
     """
     # Load model.
-    package_dirname = os.path.dirname(__file__)
+    package_dirname = dirname(__file__)
     params["model_dir"] = join(package_dirname, "pretrained_models", "2stems")
 
     params["MWF"] = MWF
@@ -250,7 +250,6 @@ class Separator(object):
         audio_adapter: Optional[AudioAdapter] = None,
         codec: Codec = Codec.MP3,
         bitrate: str = "128k",
-        filename_format: str = "{filename}/{instrument}.{codec}",
         synchronous: bool = True,
     ) -> None:
         """
@@ -278,8 +277,6 @@ class Separator(object):
                 (Optional) Export codec.
             bitrate (str):
                 (Optional) Export bitrate.
-            filename_format (str):
-                (Optional) Filename format.
             synchronous (bool):
                 (Optional) True is should by synchronous.
         """
@@ -289,69 +286,86 @@ class Separator(object):
 
         total_duration = get_audio_duration(audio_descriptor)
 
-        segment_duration = 30
+        root, _ = splitext(basename(audio_descriptor))
 
-        offset = 0
+        # Segemented processing should only be for audio files over 30 seconds.
+        if total_duration > 30:
+            segment_files = []  # To store the names of the processed files
+            segment_duration = 30
+            offset = 0
 
-        segment_files = []  # To store the names of the processed files
+            while offset < total_duration:
+                duration_to_process = min(segment_duration, total_duration - offset)
 
-        while offset < total_duration:
-            duration_to_process = min(segment_duration, total_duration - offset)
+                waveform, _ = audio_adapter.load(
+                    audio_descriptor,
+                    offset=offset,
+                    duration=duration_to_process,
+                    sample_rate=self._sample_rate,
+                )
 
+                sources = self.separate(waveform, audio_descriptor)
+
+                temp_folder_path = join(destination, "tmp")
+
+                # Generate a filename for the current segment
+                segment_filename = join(
+                    temp_folder_path, f"segment_{offset // segment_duration}"
+                )
+
+                segment_files.append(
+                    join(f"segment_{offset // segment_duration}", f"vocals.{codec}")
+                )
+
+                self.save_to_file(
+                    sources,
+                    segment_filename,
+                    codec,
+                    audio_adapter,
+                    bitrate,
+                    synchronous,
+                )
+
+                # Calculate and print progress
+                progress = (offset / total_duration) * 100
+                print(f"Processing: {progress:.2f}% complete")
+
+                # Increment the offset by the segment duration
+                offset += segment_duration
+
+            merge_media_files(root, segment_files, destination, codec)
+
+            # Remove temporary folder
+            shutil.rmtree(temp_folder_path)
+
+        else:
             waveform, _ = audio_adapter.load(
                 audio_descriptor,
-                offset=offset,
-                duration=duration_to_process,
                 sample_rate=self._sample_rate,
             )
-
             sources = self.separate(waveform, audio_descriptor)
-
-            temp_folder_path = join(destination, "tmp")
-
-            # Generate a filename for the current segment
-            segment_filename = join(
-                temp_folder_path, f"segment_{offset // segment_duration}"
-            )
-
-            segment_files.append(
-                join(f"segment_{offset // segment_duration}", f"vocals.{codec}")
-            )
-
+            sources.pop("accompaniment")
             self.save_to_file(
                 sources,
-                audio_descriptor,
-                segment_filename,
-                filename_format,
+                destination,
                 codec,
                 audio_adapter,
                 bitrate,
                 synchronous,
+                root,
             )
 
-            # Calculate and print progress
-            progress = (offset / total_duration) * 100
-            print(f"Processing: {progress:.2f}% complete")
-
-            # Increment the offset by the segment duration
-            offset += segment_duration
-
-        merge_media_files(segment_files, destination, codec)
-
-        # Remove temporary folder
-        shutil.rmtree(temp_folder_path)
         print("File created successfuly")
 
     def save_to_file(
         self,
         sources: Dict,
-        audio_descriptor: AudioDescriptor,
         destination: str,
-        filename_format: str = "{filename}/{instrument}.{codec}",
         codec: Codec = Codec.MP3,
         audio_adapter: Optional[AudioAdapter] = None,
         bitrate: str = "128k",
         synchronous: bool = True,
+        filename: str = None,
     ) -> None:
         """
         Export dictionary of sources to files.
@@ -362,14 +376,8 @@ class Separator(object):
                 of the instruments, and the values are `N x 2` numpy arrays
                 containing the corresponding intrument waveform, as
                 returned by the separate method
-            audio_descriptor (AudioDescriptor):
-                Describe song to separate, used by audio adapter to
-                retrieve and load audio data, in case of file based audio
-                adapter, such descriptor would be a file path.
             destination (str):
                 Target directory to write output to.
-            filename_format (str):
-                (Optional) Filename format.
             codec (Codec):
                 (Optional) Export codec.
             audio_adapter (Optional[AudioAdapter]):
@@ -381,20 +389,34 @@ class Separator(object):
         """
         if audio_adapter is None:
             audio_adapter = AudioAdapter.default()
-        foldername = basename(dirname(audio_descriptor))
 
         generated = []
+        filename_format = ""
+        path = ""
+
         for instrument, data in sources.items():
-            path = join(
-                filename_format.format(
-                    filename=destination,
-                    instrument=instrument,
-                    foldername=foldername,
-                    codec=codec,
-                ),
-            )
-            directory = os.path.dirname(path)
-            if not os.path.exists(directory):
+            if filename:
+                filename_format = "{destination}/{filename}_{instrument}.{codec}"
+                path = join(
+                    filename_format.format(
+                        destination=destination,
+                        filename=filename,
+                        instrument=instrument,
+                        codec=codec,
+                    ),
+                )
+            else:
+                filename_format = "{destination}/{instrument}.{codec}"
+                path = join(
+                    filename_format.format(
+                        destination=destination,
+                        instrument=instrument,
+                        codec=codec,
+                    ),
+                )
+
+            directory = dirname(path)
+            if not exists(directory):
                 os.makedirs(directory)
             if path in generated:
                 raise SpleeterError(

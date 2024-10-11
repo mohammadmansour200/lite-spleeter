@@ -27,7 +27,6 @@ from .options import (
     AudioInputArgument,
     AudioInputOption,
     AudioOutputOption,
-    FilenameFormatOption,
     MWFOption,
     VerboseOption,
     VersionOption,
@@ -55,7 +54,6 @@ def separate(
     bitrate: str = AudioBitrateOption,
     codec: Codec = AudioCodecOption,
     output_path: str = AudioOutputOption,
-    filename_format: str = FilenameFormatOption,
     mwf: bool = MWFOption,
     verbose: bool = VerboseOption,
 ) -> None:
@@ -82,7 +80,6 @@ def separate(
             audio_adapter=audio_adapter,
             codec=codec,
             bitrate=bitrate,
-            filename_format=filename_format,
             synchronous=False,
         )
     separator.join()

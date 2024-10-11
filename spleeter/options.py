@@ -52,18 +52,6 @@ AudioBitrateOption: str = Option(
     "128k", "--bitrate", "-b", help="Audio bitrate to be used for the separated output"
 )
 
-FilenameFormatOption: str = Option(
-    "{filename}/{instrument}.{codec}",
-    "--filename_format",
-    "-f",
-    help=(
-        "Template string that will be formatted to generated"
-        "output filename. Such template should be Python formattable"
-        "string, and could use {filename}, {instrument}, and {codec}"
-        "variables"
-    ),
-)
-
 
 MWFOption: bool = Option(
     False, "--mwf", help="Whether to use multichannel Wiener filtering for separation"
