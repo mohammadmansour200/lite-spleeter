@@ -77,7 +77,7 @@ def version_callback(value: bool):
     if value:
         from importlib.metadata import version
 
-        echo(f"Spleeter Version: {version('spleeter')}")
+        echo(f"lite-spleeter Version: {version('lite-spleeter')}")
         raise Exit()
 
 
@@ -86,5 +86,5 @@ VersionOption: bool = Option(
     "--version",
     callback=version_callback,
     is_eager=True,
-    help="Return Spleeter version",
+    help="Return lite-spleeter version",
 )

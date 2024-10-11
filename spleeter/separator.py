@@ -118,6 +118,7 @@ class Separator(object):
         self._params = load_configuration()
         self._sample_rate = self._params["sample_rate"]
         self._MWF = MWF
+        self._estimator = create_estimator(self._params, self._MWF)
         self._tf_graph = tf.Graph()
         self._prediction_generator: Optional[Generator] = None
         self._input_provider = None
@@ -132,7 +133,7 @@ class Separator(object):
         self._tasks: List = []
         self._data_generator = DataGenerator()
 
-    def _get_prediction_generator(self, estimator: tf.Tensor) -> Generator:
+    def _get_prediction_generator(self) -> Generator:
         """
         Lazy loading access method for internal prediction generator
         returned by the predict method of a tensorflow estimator.
@@ -150,7 +151,7 @@ class Separator(object):
                     output_shapes={"waveform": (None, 2), "audio_id": ()},
                 )
 
-            self._prediction_generator = estimator.predict(
+            self._prediction_generator = self._estimator.predict(
                 get_dataset, yield_single_examples=False
             )
         return self._prediction_generator
@@ -194,10 +195,7 @@ class Separator(object):
         return self._session
 
     def _separate_tensorflow(
-        self,
-        waveform: np.ndarray,
-        audio_descriptor: AudioDescriptor,
-        estimator: tf.Tensor,
+        self, waveform: np.ndarray, audio_descriptor: AudioDescriptor
     ) -> Dict:
         """
         Performs source separation over the given waveform with tensorflow
@@ -215,7 +213,7 @@ class Separator(object):
         """
         if not waveform.shape[-1] == 2:
             waveform = to_stereo(waveform)
-        prediction_generator = self._get_prediction_generator(estimator)
+        prediction_generator = self._get_prediction_generator()
         # NOTE: update data in generator before performing separation.
         self._data_generator.update_data(
             {"waveform": waveform, "audio_id": np.array(audio_descriptor)}
@@ -228,7 +226,6 @@ class Separator(object):
     def separate(
         self,
         waveform: np.ndarray,
-        estimator: tf.Tensor,
         audio_descriptor: Optional[str] = "",
     ) -> Dict:
         """
@@ -244,7 +241,7 @@ class Separator(object):
             Dict:
                 Separated waveforms.
         """
-        return self._separate_tensorflow(waveform, audio_descriptor, estimator)
+        return self._separate_tensorflow(waveform, audio_descriptor)
 
     def separate_to_file(
         self,
@@ -286,7 +283,6 @@ class Separator(object):
             synchronous (bool):
                 (Optional) True is should by synchronous.
         """
-        estimator = create_estimator(self._params, self._MWF)
 
         if audio_adapter is None:
             audio_adapter = AudioAdapter.default()
@@ -309,7 +305,7 @@ class Separator(object):
                 sample_rate=self._sample_rate,
             )
 
-            sources = self.separate(waveform, estimator, audio_descriptor)
+            sources = self.separate(waveform, audio_descriptor)
 
             temp_folder_path = join(destination, "tmp")
 
