@@ -305,6 +305,7 @@ class Separator(object):
                 )
 
                 sources = self.separate(waveform, audio_descriptor)
+                sources.pop("accompaniment")
 
                 temp_folder_path = join(destination, "tmp")
 
