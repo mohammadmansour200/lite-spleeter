@@ -16,7 +16,7 @@ from typing import List, Optional
 
 # pyright: reportMissingImports=false
 # pylint: disable=import-error
-from typer import Exit, Typer
+from typer import Exit, Typer, Option
 
 from . import SpleeterError
 from .audio import Codec
@@ -56,6 +56,12 @@ def separate(
     output_path: str = AudioOutputOption,
     mwf: bool = MWFOption,
     verbose: bool = VerboseOption,
+    all: bool = Option(
+        False, 
+        "--all",
+        help="Output both vocals and accompaniment",
+        is_flag=True
+    ),
 ) -> None:
     """
     Separate audio file(s)
@@ -70,19 +76,25 @@ def separate(
             "using input argument instead (see spleeter separate --help)"
         )
         raise Exit(20)
-    audio_adapter: AudioAdapter = AudioAdapter.get(adapter)
-    separator: Separator = Separator(MWF=mwf)
+    try:
+        adapter_class = f"{adapter}.FFMPEGProcessAudioAdapter"
+        audio_adapter: AudioAdapter = AudioAdapter.get(adapter_class)
+        separator: Separator = Separator(MWF=mwf)
 
-    for filename in files:
-        separator.separate_to_file(
-            filename,
-            output_path,
-            audio_adapter=audio_adapter,
-            codec=codec,
-            bitrate=bitrate,
-            synchronous=False,
-        )
-    separator.join()
+        for filename in files:
+            separator.separate_to_file(
+                filename,
+                output_path,
+                audio_adapter=audio_adapter,
+                codec=codec,
+                bitrate=bitrate,
+                synchronous=False,
+                all=all,
+            )
+        separator.join()
+    except Exception as e:
+        logger.error(f"Error during separation: {str(e)}")
+        raise
 
 
 def entrypoint():

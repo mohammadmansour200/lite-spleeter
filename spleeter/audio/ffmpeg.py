@@ -195,24 +195,46 @@ def get_audio_duration(audio_descriptor):
 
 
 def merge_media_files(
-    filename: str, segment_files: list, output_folder: str, codec: str
+    filename: str, 
+    segment_files: list, 
+    output_folder: str, 
+    codec: str,
+    instrument: str = "vocals"
 ):
-    temp_folder_path = os.path.join(output_folder, "tmp")
+    # 确保使用绝对路径
+    output_folder = os.path.abspath(output_folder)
+    
+    # 创建临时文件夹（如果不存在）
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
 
-    # Create a temporary text file to list all audio files to merge
-    with open(os.path.join(temp_folder_path, "file_list.txt"), "w") as file_list:
+    # 创建文件列表文件
+    file_list_path = os.path.join(output_folder, "file_list.txt")
+    with open(file_list_path, "w") as file_list:
         for segment in segment_files:
-            file_list.write(f"file '{segment}'\n")
+            # 使用绝对路径
+            full_path = os.path.join(output_folder, segment)
+            file_list.write(f"file '{full_path}'\n")
 
-    # Use ffmpeg to merge the files
-    (
-        ffmpeg.input(
-            os.path.join(temp_folder_path, "file_list.txt"),
-            format="concat",
-            safe=0,
+    try:
+        # 使用 ffmpeg 合并文件
+        (
+            ffmpeg.input(
+                file_list_path,
+                format="concat",
+                safe=0,
+            )
+            .output(
+                os.path.join(output_folder, f"{filename}_{instrument}.{codec}"),
+                acodec="copy"  # 直接复制音频流，避免重新编码
+            )
+            .overwrite_output()
+            .run(capture_stderr=True)
         )
-        .output(
-            os.path.join(output_folder, f"{filename}_vocals.{codec}"),
-        )
-        .run(overwrite_output=True)
-    )
+    except ffmpeg.Error as e:
+        print(f"Error occurred: {e.stderr.decode()}")
+        raise
+    finally:
+        # 清理文件列表文件
+        if os.path.exists(file_list_path):
+            os.remove(file_list_path)

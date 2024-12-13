@@ -251,6 +251,7 @@ class Separator(object):
         codec: Codec = Codec.MP3,
         bitrate: str = "128k",
         synchronous: bool = True,
+        all: bool = False,
     ) -> None:
         """
         Performs source separation and export result to file using
@@ -279,6 +280,9 @@ class Separator(object):
                 (Optional) Export bitrate.
             synchronous (bool):
                 (Optional) True is should by synchronous.
+            all (bool):
+                (Optional) If True, output both vocals and accompaniment.
+                If False, only output vocals. Default is False.
         """
 
         if audio_adapter is None:
@@ -290,54 +294,106 @@ class Separator(object):
 
         # Segemented processing should only be for audio files over 30 seconds.
         if total_duration > 30:
-            segment_files = []  # To store the names of the processed files
+            segment_files = []
             segment_duration = 30
-            offset = 0
+            temp_folder_path = os.path.abspath(os.path.join(destination, "tmp"))
+            if not exists(temp_folder_path):
+                os.makedirs(temp_folder_path)
 
-            while offset < total_duration:
+            # Calculate total segments
+            total_segments = int(np.ceil(total_duration / segment_duration))
+            instruments_to_process = None
+
+            for segment_index in range(total_segments):
+                segment_dir = os.path.join(temp_folder_path, f"segment_{segment_index}")
+                if not exists(segment_dir):
+                    os.makedirs(segment_dir)
+
+                offset = segment_index * segment_duration
                 duration_to_process = min(segment_duration, total_duration - offset)
 
-                waveform, _ = audio_adapter.load(
-                    audio_descriptor,
-                    offset=offset,
-                    duration=duration_to_process,
-                    sample_rate=self._sample_rate,
-                )
+                try:
+                    # Load audio segment
+                    waveform, _ = audio_adapter.load(
+                        audio_descriptor,
+                        offset=offset,
+                        duration=duration_to_process,
+                        sample_rate=self._sample_rate,
+                    )
 
-                sources = self.separate(waveform, audio_descriptor)
-                sources.pop("accompaniment")
+                    # 分离音频
+                    sources = self.separate(waveform, audio_descriptor)
+                    if not all:
+                        sources.pop("accompaniment", None)
 
-                temp_folder_path = join(destination, "tmp")
+                    # 在第一次循环时确定需要处理的乐器
+                    if instruments_to_process is None:
+                        instruments_to_process = list(sources.keys())
 
-                # Generate a filename for the current segment
-                segment_filename = join(
-                    temp_folder_path, f"segment_{offset // segment_duration}"
-                )
+                    # 为每个乐器创建单独的任务
+                    for instrument, data in sources.items():
+                        output_path = os.path.join(segment_dir, f"{instrument}.{codec}")
+                        if self._pool:
+                            # 只传递必要的数据
+                            task = self._pool.apply_async(
+                                audio_adapter.save,
+                                (output_path, data, self._sample_rate, codec, bitrate)
+                            )
+                            self._tasks.append(task)
+                        else:
+                            audio_adapter.save(output_path, data, self._sample_rate, codec, bitrate)
 
-                segment_files.append(
-                    join(f"segment_{offset // segment_duration}", f"vocals.{codec}")
-                )
+                        segment_path = os.path.join(f"segment_{segment_index}", f"{instrument}.{codec}")
+                        segment_files.append(segment_path)
 
-                self.save_to_file(
-                    sources,
-                    segment_filename,
-                    codec,
-                    audio_adapter,
-                    bitrate,
-                    synchronous,
-                )
+                    # 计算并打印进度
+                    progress = ((segment_index + 1) / total_segments) * 100
+                    print(f"Processing: {progress:.2f}% complete")
 
-                # Calculate and print progress
-                progress = (offset / total_duration) * 100
-                print(f"Processing: {progress:.2f}% complete")
+                except Exception as e:
+                    print(f"Error processing segment {segment_index}: {str(e)}")
+                    if exists(temp_folder_path):
+                        shutil.rmtree(temp_folder_path)
+                    raise
 
-                # Increment the offset by the segment duration
-                offset += segment_duration
+            # 等待所有保存任务完成
+            if self._tasks:
+                for task in self._tasks:
+                    try:
+                        task.get()
+                    except Exception as e:
+                        print(f"Error in save task: {str(e)}")
+                        if exists(temp_folder_path):
+                            shutil.rmtree(temp_folder_path)
+                        raise
 
-            merge_media_files(root, segment_files, destination, codec)
+            # 合并文件
+            try:
+                for instrument in instruments_to_process:
+                    segment_paths = [f for f in segment_files if instrument in f]
+                    merge_media_files(
+                        root,
+                        segment_paths,
+                        temp_folder_path,
+                        codec,
+                        instrument
+                    )
 
-            # Remove temporary folder
-            shutil.rmtree(temp_folder_path)
+                    # 移动合并后的文件到目标目录
+                    src = os.path.join(temp_folder_path, f"{root}_{instrument}.{codec}")
+                    dst = os.path.join(destination, f"{root}_{instrument}.{codec}")
+                    if os.path.exists(src):
+                        shutil.move(src, dst)
+
+            except Exception as e:
+                print(f"Error during merging: {str(e)}")
+                if exists(temp_folder_path):
+                    shutil.rmtree(temp_folder_path)
+                raise
+
+            # 清理临时文件
+            if exists(temp_folder_path):
+                shutil.rmtree(temp_folder_path)
 
         else:
             waveform, _ = audio_adapter.load(
@@ -345,7 +401,8 @@ class Separator(object):
                 sample_rate=self._sample_rate,
             )
             sources = self.separate(waveform, audio_descriptor)
-            sources.pop("accompaniment")
+            if not all:
+                sources.pop("accompaniment", None)  # 使用 pop 的第二个参数避免 KeyError
             self.save_to_file(
                 sources,
                 destination,
@@ -392,40 +449,19 @@ class Separator(object):
             audio_adapter = AudioAdapter.default()
 
         generated = []
-        filename_format = ""
-        path = ""
-
         for instrument, data in sources.items():
             if filename:
-                filename_format = "{destination}/{filename}_{instrument}.{codec}"
-                path = join(
-                    filename_format.format(
-                        destination=destination,
-                        filename=filename,
-                        instrument=instrument,
-                        codec=codec,
-                    ),
-                )
+                path = join(destination, f"{filename}_{instrument}.{codec}")
             else:
-                filename_format = "{destination}/{instrument}.{codec}"
-                path = join(
-                    filename_format.format(
-                        destination=destination,
-                        instrument=instrument,
-                        codec=codec,
-                    ),
-                )
+                path = join(destination, f"{instrument}.{codec}")
 
             directory = dirname(path)
             if not exists(directory):
                 os.makedirs(directory)
+            
             if path in generated:
-                raise SpleeterError(
-                    (
-                        f"Separated source path conflict : {path},"
-                        "please check your filename format"
-                    )
-                )
+                raise SpleeterError(f"Separated source path conflict: {path}")
+            
             generated.append(path)
             if self._pool:
                 task = self._pool.apply_async(
@@ -434,5 +470,6 @@ class Separator(object):
                 self._tasks.append(task)
             else:
                 audio_adapter.save(path, data, self._sample_rate, codec, bitrate)
+            
         if synchronous and self._pool:
             self.join()

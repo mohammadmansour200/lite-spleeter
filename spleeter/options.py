@@ -30,7 +30,7 @@ AudioInputOption: Optional[str] = Option(
 )
 
 AudioAdapterOption: str = Option(
-    "spleeter.audio.ffmpeg.FFMPEGProcessAudioAdapter",
+    "spleeter.audio.ffmpeg",
     "--adapter",
     "-a",
     help="Name of the audio adapter to use for audio I/O",
