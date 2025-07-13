@@ -3,13 +3,8 @@
 
 """This modules provides spleeter command as well as CLI parsing methods."""
 
-from os.path import join
-from tempfile import gettempdir
-
 from typer import Argument, Exit, Option, echo
 from typer.models import List, Optional
-
-from .audio import Codec
 
 __email__ = "spleeter@deezer.com"
 __author__ = "Deezer Research"
@@ -37,15 +32,15 @@ AudioAdapterOption: str = Option(
 )
 
 AudioOutputOption: str = Option(
-    join(gettempdir(), "separated_audio"),
+    None,
     "--output_path",
     "-o",
     help="Path of the output directory to write audio files in",
-)
-
-
-AudioCodecOption: Codec = Option(
-    Codec.MP3, "--codec", "-c", help="Audio codec to be used for the separated output"
+    exists=True,
+    file_okay=False,
+    dir_okay=True,
+    readable=True,
+    resolve_path=True,
 )
 
 AudioBitrateOption: str = Option(
@@ -60,6 +55,9 @@ MWFOption: bool = Option(
 
 VerboseOption: bool = Option(False, "--verbose", help="Enable verbose logs")
 
+MediaTypeOption: str = Option(None, "--media_type", help="Used for online media downloading format, either 'video', 'audio'")
+
+QualityOption: str = Option("high", "--quality", "-q", help="Used for online media downloading preferred quality, either 'high', 'medium' and 'low''")
 
 def version_callback(value: bool):
     if value:

@@ -11,25 +11,25 @@ Notes:
     command function scope to avoid heavy import on CLI evaluation,
     leading to large bootstraping time.
 """
-
+import os.path
 from typing import List, Optional
 
+import validators
 # pyright: reportMissingImports=false
 # pylint: disable=import-error
 from typer import Exit, Typer
 
+from spleeter.utils.downloader import Downloader
 from . import SpleeterError
-from .audio import Codec
 from .options import (
     AudioAdapterOption,
     AudioBitrateOption,
-    AudioCodecOption,
     AudioInputArgument,
     AudioInputOption,
     AudioOutputOption,
     MWFOption,
     VerboseOption,
-    VersionOption,
+    VersionOption, MediaTypeOption, QualityOption,
 )
 from .utils.logging import configure_logger, logger
 
@@ -52,10 +52,11 @@ def separate(
     files: List[str] = AudioInputArgument,
     adapter: str = AudioAdapterOption,
     bitrate: str = AudioBitrateOption,
-    codec: Codec = AudioCodecOption,
     output_path: str = AudioOutputOption,
     mwf: bool = MWFOption,
     verbose: bool = VerboseOption,
+    media_type: str = MediaTypeOption,
+    quality: str = QualityOption
 ) -> None:
     """
     Separate audio file(s)
@@ -74,14 +75,20 @@ def separate(
     separator: Separator = Separator(MWF=mwf)
 
     for filename in files:
-        separator.separate_to_file(
-            filename,
-            output_path,
-            audio_adapter=audio_adapter,
-            codec=codec,
-            bitrate=bitrate,
-            synchronous=False,
-        )
+        is_url = validators.url(filename)
+        audio_descriptor = filename
+        if is_url:
+            if media_type is None:
+                raise SpleeterError("No media type is specified, it can either be 'audio' or 'video'")
+            downloader = Downloader(
+                                    output_dir=os.path.join(output_path, 'tmp'),
+                                    media_type=media_type,
+                                    quality=quality
+                                    )
+            audio_descriptor = downloader.download(url=filename)
+
+        separator.separate_to_file(audio_descriptor=audio_descriptor, destination=output_path, audio_adapter=audio_adapter, bitrate=bitrate,
+                                   synchronous=True)
     separator.join()
 
 
