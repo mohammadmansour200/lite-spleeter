@@ -823,7 +823,7 @@ files = [
 [package.dependencies]
 jaxlib = "0.4.38"
 ml_dtypes = ">=0.4.0"
-numpy = {version = ">=1.24", markers = "python_version < \"3.12\""}
+numpy = ">=1.24"
 opt_einsum = "*"
 scipy = ">=1.10"
 

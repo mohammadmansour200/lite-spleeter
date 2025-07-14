@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lite-spleeter"
-version = "2.0.0"
+version = "2.1.0"
 description = "A very lite version of The Deezer source separation library with very low RAM usage."
 authors = ["Mohammad Mansour <mohammadamansour03@gmail.com>"]
 license = "MIT License"
