@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "lite-spleeter"
 version = "2.0.0"
-description = "A very lite version of The Deezer source separation library with very low RAM usage and the same results of the original Spleeter."
+description = "A very lite version of The Deezer source separation library with very low RAM usage."
 authors = ["Mohammad Mansour <mohammadamansour03@gmail.com>"]
 license = "MIT License"
 readme = "README.md"
@@ -45,13 +45,11 @@ packages = [ { include = "spleeter" } ]
 include = ["LICENSE"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.12"
+python = ">=3.9"
 ffmpeg-python = "^0.2.0"
 typer = "^0.3.2"
-pandas = "^1.3.0"
 norbert = "^0.2.1"
 numpy = "<2.0.0"
-scipy = ">=1.8.1"
 tensorflow = { version = ">=2.5.0,<2.11.0"}
 yt-dlp = {version = "^2025.6.30", extras = ["default"]}
 validators = "0.35.0"
