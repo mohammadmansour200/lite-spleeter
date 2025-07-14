@@ -21,10 +21,10 @@ classifiers = [
     "Operating System :: Unix",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Artistic Software",
@@ -45,12 +45,12 @@ packages = [ { include = "spleeter" } ]
 include = ["LICENSE"]
 
 [tool.poetry.dependencies]
-python = ">=3.9"
+python = ">=3.9,<3.13"
 ffmpeg-python = "^0.2.0"
 typer = "^0.3.2"
 norbert = "^0.2.1"
 numpy = "<2.0.0"
-tensorflow = { version = ">=2.5.0,<2.11.0"}
+tensorflow = "2.12.1"
 yt-dlp = {version = "^2025.6.30", extras = ["default"]}
 validators = "0.35.0"
 
