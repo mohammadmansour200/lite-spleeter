@@ -10,6 +10,7 @@ class Downloader:
         self.output_dir = output_dir
         self.media_type = media_type
         self.quality = quality
+        self.is_output_video = self.media_type == "video"
         self._initialize_youtube_dl()
 
     def download(self, url: str) -> str:
@@ -18,7 +19,7 @@ class Downloader:
 
         self._initialize_youtube_dl()
 
-        filename = f"{url_data['id']}.mp4" if self.media_type == "video" else f"{url_data['id']}.m4a"
+        filename = f"{url_data['id']}.{url_data['ext']}" if self.is_output_video else f"{url_data['id']}.mp3"
         download_path = os.path.abspath(os.path.join(self.output_dir, filename))
         return download_path
 
@@ -33,11 +34,32 @@ class Downloader:
             'quiet': True,
             'verbose': False,
         }
-        if self.quality == "medium":
-            config['format'] =  'best[height<=720]' if self.media_type == 'video' else 'best[abr<=160]'
 
-        if self.quality == "low":
-            config['format'] =  'best[height<=360]' if self.media_type == 'video' else 'best[abr<=96]'
+        is_high_quality = self.quality == "high"
+
+        if not self.is_output_video and is_high_quality:
+            config['extract_audio'] = True
+            config['postprocessors'] = [
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }
+            ]
+
+        if self.is_output_video and not is_high_quality:
+            config['format'] = 'bestvideo[height<=720]+bestaudio' if self.quality == "medium" else 'bestvideo[height<=360]+bestaudio'
+
+        if not self.is_output_video and not is_high_quality:
+            config['format'] = 'bestaudio'
+            config['extract_audio'] = True
+            config['postprocessors']= [
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '128' if self.quality == "medium" else '96',
+                }
+            ]
 
         return config
 
