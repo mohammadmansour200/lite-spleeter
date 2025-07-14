@@ -13,8 +13,6 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import tensorflow as tf  # type: ignore
 
-from spleeter.audio import Codec
-
 from .. import SpleeterError
 from ..types import AudioDescriptor, Signal
 from ..utils.logging import logger
@@ -137,7 +135,7 @@ class AudioAdapter(ABC):
         path: Union[Path, str],
         data: np.ndarray,
         sample_rate: float,
-        codec: Codec = None,
+        codec: str = None,
         bitrate: str = None,
     ) -> None:
         """
@@ -150,8 +148,8 @@ class AudioAdapter(ABC):
                 Waveform data to write.
             sample_rate (float):
                 Sample rate to write file in.
-            codec (Codec):
-                (Optional) Writing codec to use, default to `None`.
+            codec (str):
+                Writing codec to use, default to `None`.
             bitrate (str):
                 (Optional) Bitrate of the written audio file, default to
                 `None`.

@@ -11,8 +11,9 @@ used within this library.
 import datetime as dt
 import os
 import shutil
+from os.path import dirname, basename
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 # pyright: reportMissingImports=false
 # pylint: disable=import-error
@@ -20,9 +21,8 @@ import ffmpeg  # type: ignore
 import numpy as np
 
 from .. import SpleeterError
-from ..types import Signal
+from ..types import Signal, AudioDescriptor
 from ..utils.logging import logger
-from . import Codec
 from .adapter import AudioAdapter
 
 # pylint: enable=import-error
@@ -42,13 +42,6 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
     `FFMPEG_PATH` environment variable.
     """
 
-    SUPPORTED_CODECS: Dict[Codec, str] = {
-        Codec.M4A: "aac",
-        Codec.OGG: "libvorbis",
-        Codec.WMA: "wmav2",
-    }
-    """ FFMPEG codec name mapping. """
-
     def __init__(_) -> None:
         """
         Default constructor, ensure FFMPEG binaries are available.
@@ -59,7 +52,7 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
         """
         for binary in ("ffmpeg", "ffprobe"):
             if shutil.which(binary) is None:
-                raise SpleeterError("{} binary not found".format(binary))
+                raise SpleeterError("audio_adapter:{} binary not found".format(binary))
 
     def load(
         _,
@@ -101,12 +94,12 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
             probe = ffmpeg.probe(path)
         except ffmpeg._run.Error as e:
             raise SpleeterError(
-                "An error occurs with ffprobe (see ffprobe output below)\n\n{}".format(
+                "audio_adapter:An error occurred with ffprobe (see ffprobe output below)\n\n{}".format(
                     e.stderr.decode()
                 )
             )
         if "streams" not in probe or len(probe["streams"]) == 0:
-            raise SpleeterError("No stream was found with ffprobe")
+            raise SpleeterError("audio_adapter:No stream was found with ffprobe")
         metadata = next(
             stream for stream in probe["streams"] if stream["codec_type"] == "audio"
         )
@@ -134,7 +127,7 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
         path: Union[Path, str],
         data: np.ndarray,
         sample_rate: float,
-        codec: Codec = None,
+        codec: str = None,
         bitrate: str = None,
     ) -> None:
         """
@@ -148,8 +141,8 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
                 Waveform data to write.
             sample_rate (float):
                 Sample rate to write file in.
-            codec (Codec):
-                (Optional) Writing codec to use, default to `None`.
+            codec (str):
+                Writing codec to use, default to `None`.
             bitrate (str):
                 (Optional) Bitrate of the written audio file, default to
                 `None`.
@@ -162,14 +155,14 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
             path = str(path)
         directory = os.path.dirname(path)
         if not os.path.exists(directory):
-            raise SpleeterError(f"output directory does not exists: {directory}")
+            raise SpleeterError(f"audio_adapter:output directory does not exist: {directory}")
         logger.debug(f"Writing file {path}")
         input_kwargs = {"ar": sample_rate, "ac": data.shape[1]}
         output_kwargs = {"ar": sample_rate, "strict": "-2"}
         if bitrate:
             output_kwargs["audio_bitrate"] = bitrate
         if codec is not None and codec != "wav":
-            output_kwargs["codec"] = self.SUPPORTED_CODECS.get(codec, codec)
+            output_kwargs["codec"] = codec if codec != "m4a" else "aac"
         process = (
             ffmpeg.input("pipe:", format="f32le", **input_kwargs)
             .output(path, **output_kwargs)
@@ -181,38 +174,97 @@ class FFMPEGProcessAudioAdapter(AudioAdapter):
             process.stdin.close()
             process.wait()
         except IOError:
-            raise SpleeterError(f"FFMPEG error: {process.stderr.read()}")
+            raise SpleeterError(f"audio_adapter:FFMPEG error: {process.stderr.read()}")
 
 
-def get_audio_duration(audio_descriptor):
-    # Use ffprobe to get the metadata of the audio file
-    probe = ffmpeg.probe(audio_descriptor)
+class FFMPEGUtils:
+    """
+    FFmpeg utils used in separation.
 
-    # Extract the duration from the metadata
-    duration = float(probe["format"]["duration"])
+    When created, FFMPEG binary path will be checked and expended,
+    raising exception if not found. Such path could be infered using
+    `FFMPEG_PATH` environment variable.
+    """
 
-    return duration
+    def __init__(self, input_path: AudioDescriptor) -> None:
+        """
+        Default constructor, ensure FFMPEG binaries are available.
 
+        Raises:
+            SpleeterError:
+                If ffmpeg or ffprobe is not found.
+        """
+        for binary in ("ffmpeg", "ffprobe"):
+            if shutil.which(binary) is None:
+                raise SpleeterError("ffmpeg_utils:{} binary not found".format(binary))
 
-def merge_media_files(
-    filename: str, segment_files: list, output_folder: str, codec: str
-):
-    temp_folder_path = os.path.join(output_folder, "tmp")
+        self.input_path = input_path
 
-    # Create a temporary text file to list all audio files to merge
-    with open(os.path.join(temp_folder_path, "file_list.txt"), "w") as file_list:
-        for segment in segment_files:
-            file_list.write(f"file '{segment}'\n")
+    def get_audio_duration(self):
+        # --- Use ffprobe to get the metadata of the audio file ---
+        try:
+            probe = ffmpeg.probe(self.input_path)
+        except ffmpeg._run.Error as e:
+            raise SpleeterError(
+                "ffmpeg_utils:An error occurred with ffprobe (see ffprobe output below)\n\n{}".format(
+                    e.stderr.decode()
+                )
+            )
 
-    # Use ffmpeg to merge the files
-    (
-        ffmpeg.input(
-            os.path.join(temp_folder_path, "file_list.txt"),
-            format="concat",
-            safe=0,
-        )
-        .output(
-            os.path.join(output_folder, f"{filename}_vocals.{codec}"),
-        )
-        .run(overwrite_output=True)
-    )
+        # --- Extract the duration from the metadata ---
+        duration = float(probe["format"]["duration"])
+
+        return duration
+
+    def merge_media_files(
+            self, segment_files: list, input_path: str
+    ):
+        dir_from_path = dirname(input_path)
+        filename_from_path = basename(input_path)
+
+        # --- Some Media scenarios still need another post-processing ---
+        temp_folder_path = os.path.join(dir_from_path, "tmp") if not "tmp" in dir_from_path else dir_from_path
+
+        # --- Create a temporary text file to list all audio files to merge ---
+        with open(os.path.join(temp_folder_path, "file_list.txt"), "w") as file_list:
+            for segment in segment_files:
+                file_list.write(f"file '{segment}'\n")
+
+        # --- Use ffmpeg to merge the files ---
+        try:
+            (
+                ffmpeg.input(
+                    os.path.join(temp_folder_path, "file_list.txt"),
+                    format="concat",
+                    safe=0,
+                )
+                .output(
+                    os.path.join(dir_from_path, filename_from_path),
+                )
+                .global_args('-loglevel', 'quiet')
+                .run(overwrite_output=True)
+            )
+        except ffmpeg._run.Error as e:
+            raise SpleeterError(
+                "ffmpeg_utils:An error occurred with ffmpeg (see ffmpeg output below)\n\n{}".format(
+                    e.stderr.decode()
+                )
+            )
+
+    def replace_video_audio(self, input_audio_path: str, final_output_path: str):
+        try:
+            (
+                ffmpeg
+                .input(self.input_path)
+                .video
+                .output(ffmpeg.input(input_audio_path).audio, final_output_path,
+                        vcodec='copy', acodec='copy')
+                .global_args('-loglevel', 'quiet')
+                .run(overwrite_output=True)
+            )
+        except ffmpeg._run.Error as e:
+            raise SpleeterError(
+                "ffmpeg_utils:An error occurred with ffmpeg (see ffmpeg output below)\n\n{}".format(
+                    e.stderr.decode()
+                )
+            )
