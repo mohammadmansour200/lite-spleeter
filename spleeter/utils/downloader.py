@@ -20,8 +20,7 @@ class Downloader:
         self._initialize_youtube_dl()
 
         filename = f"{url_data['id']}.{url_data['ext']}" if self.is_output_video else f"{url_data['id']}.mp3"
-        download_path = os.path.abspath(os.path.join(self.output_dir, filename))
-        return download_path
+        return filename
 
     def _initialize_youtube_dl(self) -> None:
         self.youtube_dl = yt_dlp.YoutubeDL(self._config())

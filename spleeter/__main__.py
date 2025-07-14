@@ -80,12 +80,14 @@ def separate(
         if is_url:
             if media_type is None:
                 raise SpleeterError("No media type is specified, it can either be 'audio' or 'video'")
+            downloaded_output_path = os.path.join(output_path, 'tmp')
             downloader = Downloader(
-                                    output_dir=os.path.join(output_path, 'tmp'),
+                                    output_dir=downloaded_output_path,
                                     media_type=media_type,
                                     quality=quality
                                     )
-            audio_descriptor = downloader.download(url=filename)
+            downloaded_file_name = downloader.download(url=filename)
+            audio_descriptor = os.path.abspath(os.path.join(downloaded_output_path, downloaded_file_name))
 
         separator.separate_to_file(audio_descriptor=audio_descriptor, destination=output_path, audio_adapter=audio_adapter, bitrate=bitrate,
                                    synchronous=True)
