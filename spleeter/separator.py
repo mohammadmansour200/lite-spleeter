@@ -9,15 +9,16 @@ Examples:
 ```python
 >>> from spleeter.separator import Separator
 >>> separator = Separator()
->>> separator.separate(waveform, lambda instrument, data: ...)
->>> separator.separate_to_file(...)
+>>> separator.separate(waveform,lambda instrument, data:)
+>>> separator.separate_to_file(,
 ```
 """
 
 import atexit
+import mimetypes
 import os
 from multiprocessing import Pool
-from os.path import dirname, basename, join, exists, splitext
+from os.path import dirname, basename, join, exists, splitext, abspath
 import shutil
 from typing import Any, Dict, Generator, List, Optional
 
@@ -26,10 +27,9 @@ from typing import Any, Dict, Generator, List, Optional
 import numpy as np
 import tensorflow as tf
 
-from .audio.ffmpeg import get_audio_duration, merge_media_files
+from .audio.ffmpeg import FFMPEGUtils
 
 from . import SpleeterError
-from .audio import Codec
 from .audio.adapter import AudioAdapter
 from .audio.convertor import to_stereo
 from .model import EstimatorSpecBuilder, InputProviderFactory, model_fn
@@ -80,18 +80,19 @@ def create_estimator(params: Dict, MWF: bool) -> tf.Tensor:
         tf.Tensor:
             A tensorflow estimator
     """
-    # Load model.
+    # --- Load model. ---
+    print("Give me a second please... Loading AI Model...")
     package_dirname = dirname(__file__)
     params["model_dir"] = join(package_dirname, "pretrained_models", "2stems")
 
     params["MWF"] = MWF
 
-    # Setup config
+    # --- Setup config ---
     session_config = tf.compat.v1.ConfigProto()
     session_config.gpu_options.per_process_gpu_memory_fraction = 0.7
     config = tf.estimator.RunConfig(session_config=session_config)
 
-    # Setup estimator
+    # --- Setup estimator ---
     estimator = tf.estimator.Estimator(
         model_fn=model_fn, model_dir=params["model_dir"], params=params, config=config
     )
@@ -248,21 +249,12 @@ class Separator(object):
         audio_descriptor: AudioDescriptor,
         destination: str,
         audio_adapter: Optional[AudioAdapter] = None,
-        codec: Codec = Codec.MP3,
         bitrate: str = "128k",
         synchronous: bool = True,
     ) -> None:
         """
         Performs source separation and export result to file using
         given audio adapter.
-
-        Filename format should be a Python formattable string that could
-        use following parameters :
-
-        - {instrument}
-        - {filename}
-        - {foldername}
-        - {codec}.
 
         Parameters:
             audio_descriptor (AudioDescriptor):
@@ -273,30 +265,55 @@ class Separator(object):
                 Target directory to write output to.
             audio_adapter (AudioAdapter):
                 (Optional) Audio adapter to use for I/O.
-            codec (Codec):
-                (Optional) Export codec.
             bitrate (str):
                 (Optional) Export bitrate.
             synchronous (bool):
                 (Optional) True is should by synchronous.
         """
-
+        # --- Initialize Audio Adapter ---
         if audio_adapter is None:
             audio_adapter = AudioAdapter.default()
 
-        total_duration = get_audio_duration(audio_descriptor)
+        # --- Setup FFMPEG Utilities ---
+        ffmpeg_utils = FFMPEGUtils(input_path=audio_descriptor)
 
-        root, _ = splitext(basename(audio_descriptor))
+        # --- Determine File Type ---
+        input_mimetype = mimetypes.guess_type(audio_descriptor)[0]
+        is_audio = "audio" in input_mimetype
 
-        # Segemented processing should only be for audio files over 30 seconds.
+        # --- Get Audio Duration ---
+        total_duration = ffmpeg_utils.get_audio_duration()
+
+        # --- Prepare File Info ---
+        name, dotted_ext = splitext(basename(audio_descriptor))
+        ext = dotted_ext.replace('.', '')
+        audio_ext = ext if is_audio else "m4a"
+
+        # --- Setup Output Paths ---
+        abs_destination = abspath(destination)
+        temp_folder_path = join(abs_destination, "tmp")
+        audio_destination = abs_destination if is_audio else temp_folder_path
+
+        # --- Construct Output File Path ---
+        filename_format = "{destination}_{instrument}.{codec}"
+        audio_output_path = filename_format.format(
+            destination=join(audio_destination, name),
+            instrument="vocals",
+            codec=audio_ext,
+        )
+
+        # --- Segemented processing should only be for audio files over 30 seconds. ---
         if total_duration > 30:
-            segment_files = []  # To store the names of the processed files
+            # --- The paths of the processed files ---
+            segment_files = []
+
             segment_duration = 30
             offset = 0
 
             while offset < total_duration:
                 duration_to_process = min(segment_duration, total_duration - offset)
 
+                # --- Generate waveform for model inference ---
                 waveform, _ = audio_adapter.load(
                     audio_descriptor,
                     offset=offset,
@@ -304,69 +321,70 @@ class Separator(object):
                     sample_rate=self._sample_rate,
                 )
 
+                # --- Model inference ---
                 sources = self.separate(waveform, audio_descriptor)
                 sources.pop("accompaniment")
 
-                temp_folder_path = join(destination, "tmp")
-
-                # Generate a filename for the current segment
+                # --- Generate a filename for the current segment ---
                 segment_filename = join(
-                    temp_folder_path, f"segment_{offset // segment_duration}"
+                    temp_folder_path, f"segment_{offset // segment_duration}_vocals.{audio_ext}"
                 )
 
                 segment_files.append(
-                    join(f"segment_{offset // segment_duration}", f"vocals.{codec}")
+                    segment_filename
                 )
 
-                self.save_to_file(
-                    sources,
-                    segment_filename,
-                    codec,
-                    audio_adapter,
-                    bitrate,
-                    synchronous,
-                )
+                # --- Save processed file to output-dir/tmp ---
+                self.save_to_file(sources=sources, directory=temp_folder_path, path=segment_filename, codec=audio_ext, audio_adapter=audio_adapter,
+                                  bitrate=bitrate, synchronous=synchronous)
 
-                # Calculate and print progress
+                # --- Calculate and print progress ---
                 progress = (offset / total_duration) * 100
                 print(f"Processing: {progress:.2f}% complete")
 
-                # Increment the offset by the segment duration
+                # --- Increment the offset by the segment duration ---
                 offset += segment_duration
 
-            merge_media_files(root, segment_files, destination, codec)
-
-            # Remove temporary folder
-            shutil.rmtree(temp_folder_path)
-
+            ffmpeg_utils.merge_media_files(segment_files=segment_files, input_path=audio_output_path)
         else:
+            # --- Generate waveform for model inference ---
             waveform, _ = audio_adapter.load(
                 audio_descriptor,
                 sample_rate=self._sample_rate,
             )
+
+            # --- Model inference ---
             sources = self.separate(waveform, audio_descriptor)
             sources.pop("accompaniment")
-            self.save_to_file(
-                sources,
-                destination,
-                codec,
-                audio_adapter,
-                bitrate,
-                synchronous,
-                root,
-            )
 
+            # --- Save processed file to output-dir/tmp ---
+            self.save_to_file(sources=sources, directory=audio_destination, path=audio_output_path, codec=audio_ext, audio_adapter=audio_adapter,
+                              bitrate=bitrate, synchronous=synchronous)
+
+        if not is_audio:
+            filename_format = "{destination}_{instrument}.{codec}"
+            output_path = filename_format.format(
+                destination=join(abs_destination, name),
+                instrument="vocals",
+                codec="mp4",
+            )
+            # --- Replace unprocessed audio with processed audio ---
+            ffmpeg_utils.replace_video_audio(input_audio_path=audio_output_path, final_output_path=output_path)
+
+        # --- Remove temporary folder ---
+        if exists(temp_folder_path):
+            shutil.rmtree(temp_folder_path)
         print("File created successfuly")
 
     def save_to_file(
         self,
         sources: Dict,
-        destination: str,
-        codec: Codec = Codec.MP3,
+        directory: str,
+        path: str,
+        codec: str,
         audio_adapter: Optional[AudioAdapter] = None,
         bitrate: str = "128k",
         synchronous: bool = True,
-        filename: str = None,
     ) -> None:
         """
         Export dictionary of sources to files.
@@ -377,9 +395,11 @@ class Separator(object):
                 of the instruments, and the values are `N x 2` numpy arrays
                 containing the corresponding intrument waveform, as
                 returned by the separate method
-            destination (str):
-                Target directory to write output to.
-            codec (Codec):
+            directory (str):
+                Target dir for writing output to
+            path (str):
+                Target path to write output to.
+            codec (str):
                 (Optional) Export codec.
             audio_adapter (Optional[AudioAdapter]):
                 (Optional) Audio adapter to use for I/O.
@@ -390,39 +410,14 @@ class Separator(object):
         """
         if audio_adapter is None:
             audio_adapter = AudioAdapter.default()
-
         generated = []
-        filename_format = ""
-        path = ""
-
         for instrument, data in sources.items():
-            if filename:
-                filename_format = "{destination}/{filename}_{instrument}.{codec}"
-                path = join(
-                    filename_format.format(
-                        destination=destination,
-                        filename=filename,
-                        instrument=instrument,
-                        codec=codec,
-                    ),
-                )
-            else:
-                filename_format = "{destination}/{instrument}.{codec}"
-                path = join(
-                    filename_format.format(
-                        destination=destination,
-                        instrument=instrument,
-                        codec=codec,
-                    ),
-                )
-
-            directory = dirname(path)
             if not exists(directory):
                 os.makedirs(directory)
-            if path in generated:
+            if directory in generated:
                 raise SpleeterError(
                     (
-                        f"Separated source path conflict : {path},"
+                        f"Separated source path conflict : {directory},"
                         "please check your filename format"
                     )
                 )
